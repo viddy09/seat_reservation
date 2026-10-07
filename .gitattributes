@@ -1,0 +1,5 @@
+# Normalise to LF in the repo so shell scripts and mvnw run in Linux containers/CI.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.jar binary

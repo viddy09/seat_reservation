@@ -1,0 +1,97 @@
+# Every operational setting comes from an environment variable (see .env.example). Values here are safe local defaults.
+# Sizing rationale: docs/DECISIONS.md ADR-024.
+
+seatres:
+  db:
+    max-conns: ${DB_MAX_CONNS:20}
+  observability:
+    pool-size: 2
+    connection-timeout: 1s
+    statement-timeout: 1s
+
+spring:
+  application:
+    name: seat-service
+  threads:
+    virtual:
+      enabled: true
+  lifecycle:
+    # Graceful shutdown: readiness flips to REFUSING_TRAFFIC, in-flight requests drain, then the pools close.
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/seatres}
+    username: ${SPRING_DATASOURCE_USERNAME:seatres}
+    password: ${SPRING_DATASOURCE_PASSWORD:seatres}
+    hikari:
+      pool-name: main
+      maximum-pool-size: ${seatres.db.max-conns}
+      minimum-idle: ${seatres.db.max-conns}
+      # Pool-acquire wait. During a burst excess requests queue here instead of failing; must stay well below the
+      # platform proxy timeout (Railway: 5 min).
+      # Hikari binds raw milliseconds.
+      connection-timeout: 20000
+      validation-timeout: 2000
+      data-source-properties:
+        # Bounds a runaway statement. No lock_timeout on purpose: lock waits are how contention resolves (ADR-024).
+        options: "-c statement_timeout=15000"
+        ApplicationName: seat-service
+        tcpKeepAlive: true
+  flyway:
+    # Survive cold starts and slow database wake-ups. Flyway serialises concurrent migrators with a Postgres
+    # advisory lock.
+    connect-retries: 30
+    connect-retries-interval: 2s
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+  web:
+    resources:
+      # JSON API only: no static resources, so an unknown path is a 404 from our handler, not a resource lookup.
+      add-mappings: false
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  tomcat:
+    # A 20k burst must queue rather than be refused. Virtual threads make each waiting request cheap.
+    max-connections: 20000
+    accept-count: 10000
+    max-keep-alive-requests: 10000
+    keep-alive-timeout: 60s
+    connection-timeout: 20s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        # Liveness: the process only. A database outage must stop traffic (readiness), not restart the app.
+        liveness:
+          include: livenessState
+          additional-path: "server:/healthz"
+        # Readiness: accepting traffic AND database reachable via the separate observability pool (ADR-015).
+        readiness:
+          include: readinessState,database
+          additional-path: "server:/readyz"
+  health:
+    # The built-in DB indicator would use the main pool; ours uses the observability pool.
+    db:
+      enabled: false
+    diskspace:
+      enabled: false
+  metrics:
+    tags:
+      application: seat-service
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    root: ${LOG_LEVEL:INFO}

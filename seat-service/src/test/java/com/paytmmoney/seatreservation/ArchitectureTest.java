@@ -49,11 +49,35 @@ class ArchitectureTest {
             .resideInAPackage(BASE + ".persistence..")
             .allowEmptyShould(true);
 
+    /** SQL lives only in persistence. {@code common.SqlStates} may inspect SQLSTATEs but never runs a statement. */
     @ArchTest
     static final ArchRule onlyPersistenceRunsSql = noClasses()
             .that()
-            .resideOutsideOfPackages(BASE + ".persistence..", BASE + ".config..")
+            .resideOutsideOfPackages(BASE + ".persistence..", BASE + ".config..", BASE + ".common..")
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage("org.springframework.jdbc..", "javax.sql..", "java.sql..");
+
+    @ArchTest
+    static final ArchRule commonRunsNoSql = noClasses()
+            .that()
+            .resideInAPackage(BASE + ".common..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.springframework.jdbc..", "javax.sql..")
+            .orShould()
+            .dependOnClassesThat()
+            .haveFullyQualifiedName("java.sql.Connection")
+            .orShould()
+            .dependOnClassesThat()
+            .haveFullyQualifiedName("java.sql.Statement");
+
+    /** Identity is read from the security context only by CurrentUser (I6). */
+    @ArchTest
+    static final ArchRule onlyCurrentUserReadsSecurityContext = noClasses()
+            .that()
+            .doNotHaveFullyQualifiedName(BASE + ".security.CurrentUser")
+            .should()
+            .dependOnClassesThat()
+            .haveFullyQualifiedName("org.springframework.security.core.context.SecurityContextHolder");
 }

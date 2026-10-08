@@ -17,6 +17,17 @@ final class ErrorCodes {
     static final String UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type";
     static final String INTERNAL_ERROR = "internal_error";
 
+    static final String SEAT_TAKEN = "seat_taken";
+    static final String PER_USER_LIMIT = "per_user_limit";
+    static final String IDEMPOTENCY_KEY_REUSED = "idempotency_key_reused";
+    static final String IDEMPOTENCY_KEY_REQUIRED = "idempotency_key_required";
+    static final String IDEMPOTENCY_KEY_MISMATCH = "idempotency_key_mismatch";
+    static final String UNKNOWN_SEAT = "unknown_seat";
+    static final String CONTENTION = "contention";
+    static final String INVALID_ADMIN_KEY = "invalid_admin_key";
+    static final String SERVER_BUSY = "server_busy";
+    static final String SERVICE_UNAVAILABLE = "service_unavailable";
+
     private ErrorCodes() {}
 
     static String forStatus(HttpStatusCode status) {

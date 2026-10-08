@@ -1,11 +1,15 @@
 package com.paytmmoney.seatreservation.api;
 
+import com.paytmmoney.seatreservation.common.SqlStates;
+import com.paytmmoney.seatreservation.domain.DomainException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -13,10 +17,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -71,6 +77,64 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .map(error -> String.valueOf(error.getDefaultMessage()))
                 .toList();
         return validationFailed(Map.of("problems", problems), headers, request);
+    }
+
+    /** A malformed id in the path can't name an existing resource: 404, same as an unknown id. */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (ex instanceof MethodArgumentTypeMismatchException mismatch
+                && mismatch.getParameter().hasParameterAnnotation(PathVariable.class)) {
+            ErrorResponse envelope = ErrorResponse.of(ErrorCodes.NOT_FOUND, "Not Found", Map.of(), requestId(request));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).headers(headers).body(envelope);
+        }
+        return super.handleTypeMismatch(ex, headers, status, request);
+    }
+
+    /**
+     * Expected declines. Logged at INFO without a stack trace: under a stampede these are the normal outcome, not
+     * errors.
+     */
+    @ExceptionHandler(DomainException.class)
+    public ResponseEntity<ErrorResponse> handleDomain(DomainException ex, HttpServletRequest request) {
+        DomainErrorMapping.Mapped mapped = DomainErrorMapping.map(ex);
+        log.info(
+                "Request declined: code={} status={}",
+                mapped.code(),
+                mapped.status().value());
+        ErrorResponse envelope =
+                ErrorResponse.of(mapped.code(), ex.getMessage(), mapped.details(), RequestIdFilter.current(request));
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(mapped.status());
+        if (mapped.retryAfterSeconds() > 0) {
+            response.header(HttpHeaders.RETRY_AFTER, String.valueOf(mapped.retryAfterSeconds()));
+        }
+        return response.body(envelope);
+    }
+
+    /**
+     * Database failures that escaped the service layer, mapped by SQLSTATE (ADR-014): saturation is a 429 the client
+     * can retry; an unreachable database is a 503 (fail closed, never guess); anything else is a bug.
+     */
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccess(DataAccessException ex, HttpServletRequest request) {
+        String requestId = RequestIdFilter.current(request);
+        return switch (SqlStates.classify(ex)) {
+            case BUSY, RETRYABLE -> {
+                log.warn("Database saturated: {}", ex.getMessage());
+                yield ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, String.valueOf(DomainErrorMapping.RETRY_AFTER_SECONDS))
+                        .body(ErrorResponse.of(
+                                ErrorCodes.SERVER_BUSY, "Server is busy; retry shortly", Map.of(), requestId));
+            }
+            case UNAVAILABLE -> {
+                log.error("Database unavailable: {}", ex.getMessage());
+                yield ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .header(HttpHeaders.RETRY_AFTER, String.valueOf(DomainErrorMapping.RETRY_AFTER_SECONDS))
+                        .body(ErrorResponse.of(
+                                ErrorCodes.SERVICE_UNAVAILABLE, "Database unavailable", Map.of(), requestId));
+            }
+            case OTHER -> handleUnexpected(ex, request);
+        };
     }
 
     /**

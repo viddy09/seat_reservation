@@ -219,3 +219,29 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 
 - **Decision:** `ApiExceptionHandler` extends `ResponseEntityExceptionHandler`, so every Spring MVC exception keeps its correct status (404/405/415/…) but returns our envelope. A custom `ErrorController` replaces Boot's `/error` for errors raised in filters or via `sendError`. Static resource mapping is off, so unknown paths are 404 from our handler. The request-id filter also runs on error dispatches so the id survives.
 - **Failure mode prevented:** clients (and the burst tool) seeing two different error shapes depending on where an error originated.
+
+## ADR-031 — Protect identity routes explicitly; everything else is public
+*Status: accepted (Phase 2)*
+
+- **Decision:** the filter chain requires `ROLE_ADMIN` for `POST /shows`, authentication for `POST /shows/*/reserve`, `POST /reservations/*/cancel` and `GET /reservations/*`, and permits everything else.
+- **Why:** with `anyRequest().authenticated()`, an unknown path would answer 401 instead of 404, and wrong-method probes would answer 401 instead of 405, which misreports what happened. The protected set is small and named in one place.
+- **Trade-off:** a new endpoint is public until added to the list; reviewers must check `SecurityConfig` when adding routes. Tests assert 401/403 for every protected route.
+
+## ADR-032 — Token validation beyond the signature
+*Status: accepted (Phase 2)*
+
+- **Decision:** besides HS256 signature, `exp` and `nbf`, the decoder requires `sub` to match `^[A-Za-z0-9_.@-]{1,64}$` and `role` ∈ {`user`, `admin`}. Otherwise 401 before any application code runs. Identity is read only by `CurrentUser` (ArchUnit-enforced).
+- **Secure defaults:** `JWT_SECRET` has no default and must be ≥ 32 bytes (startup fails otherwise); `ALLOW_DEV_TOKENS` defaults to `false` (the issuer route then doesn't exist → 404). Compose and the graded deployment set it to `true`.
+
+## ADR-033 — Validation lives in the domain, in a fixed order
+*Status: accepted (Phase 2)*
+
+- **Decision:** request records are raw (boxed fields, no Bean Validation annotations). `NewShow.of`, `SeatSelection` and `IdempotencyKey.resolve` validate in the order of ADR-018 and throw sealed domain exceptions.
+- **Why:** `@Valid` runs before the controller, which would make a body-shape 422 win over a missing-key 400 and break the documented precedence. Domain validation is also unit-testable without Spring.
+- **Number strictness:** `250.5`, `"250"` and `1e3` for `price_paise` are 400 `invalid_json` (Jackson `ACCEPT_FLOAT_AS_INT` and `ALLOW_COERCION_OF_SCALARS` off); `0`/negative/missing are 422 `validation`.
+
+## ADR-034 — Declines skip stack traces
+*Status: accepted (Phase 2)*
+
+- **Decision:** `DomainException` is constructed with `writableStackTrace=false`; declines are logged at INFO without a stack.
+- **Why:** in a 20k stampede most responses are declines (`seat_taken`); filling 19k stack traces is pure CPU waste on the hot path. Unexpected exceptions still carry full stacks and log at ERROR.

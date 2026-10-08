@@ -14,8 +14,11 @@ public final class HttpTestClient {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
-    private final HttpClient client =
-            HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+    // HTTP/1.1 explicitly: the JDK default (HTTP/2) would send an h2c upgrade on every plain-http request.
+    private final HttpClient client = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(TIMEOUT)
+            .build();
     private final String baseUrl;
 
     public HttpTestClient(int port) {

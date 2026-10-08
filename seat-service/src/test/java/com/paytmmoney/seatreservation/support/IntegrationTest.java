@@ -10,6 +10,16 @@ import org.springframework.context.annotation.Import;
 /** A real server on a random port, backed by a real Postgres container. */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "JWT_SECRET=" + IntegrationTest.JWT_SECRET,
+            "ADMIN_API_KEY=" + IntegrationTest.ADMIN_API_KEY,
+            "ALLOW_DEV_TOKENS=true"
+        })
 @Import(PostgresContainerConfig.class)
-public @interface IntegrationTest {}
+public @interface IntegrationTest {
+
+    String JWT_SECRET = "integration-test-secret-0123456789abcdef";
+    String ADMIN_API_KEY = "integration-admin-key";
+}

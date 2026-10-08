@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+    <!-- Spring must be able to instantiate (and proxy) the @SpringBootApplication class. -->
+    <suppress checks="HideUtilityClassConstructor" files="SeatReservationApplication\.java"/>
+</suppressions>

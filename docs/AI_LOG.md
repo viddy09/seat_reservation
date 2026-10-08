@@ -26,3 +26,11 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
 - **AI proposal:** `docs/DESIGN.md` (requirements restatement, 21 ambiguities with resolutions, schema, lock order, transaction pseudocode, status-code table, metrics, sizing) and `docs/DECISIONS.md` (ADR-001…026).
 - **Notable AI-proposed resolutions beyond the brief, pending human review:** 409 `contention` when retries are exhausted; 429 `server_busy` on pool/statement timeout vs 503 only for DB connectivity loss; 401 `invalid_admin_key` on `/auth/token`; `COLLATE "C"` on `seat_label`; gauges limited to the 50 most recent shows.
 - **Human decision:** approved the design and all five flagged resolutions as proposed ("go ahead").
+
+## 2026-10-07/08 — Phase 1 (skeleton)
+
+- **Asked:** proceed with Phase 1 after Phase 0 approval.
+- **AI action:** generated a reference project from start.spring.io (Boot 4.1.1) to confirm Boot 4 starter names and copied the Maven wrapper from it; looked up current plugin versions on Maven Central; inspected Boot 4 jars with `javap` for moved packages (`EnvironmentPostProcessor`, `HealthIndicator`, `JdbcConnectionDetails`, `ErrorController`).
+- **AI output:** multi-module Maven build with Spotless/Checkstyle/`-Werror`; typed config; `DATABASE_URL` conversion; separate observability pool; `/healthz`, `/readyz`, `/metrics`; request-id filter; error envelope; Flyway V1 schema; Dockerfile, compose, Railway config, Makefile, CI; ADR-027…030.
+- **Problems hit and fixed by the AI during verification:** Testcontainers failed while Docker Desktop was still starting (re-run passed); Hikari timeouts must be raw milliseconds, not `20s`; the `DATABASE_URL` post-processor initially checked the resolved property (always set by application.yml) instead of the raw `SPRING_DATASOURCE_URL` variable.
+- **Human decision:** _pending Phase 1 review_

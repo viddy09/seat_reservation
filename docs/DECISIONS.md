@@ -192,3 +192,30 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Decision:** there is no endpoint or SQL that updates a show's price/limit or adds/removes seats. Reserve reads price, limit and the seat-label set before the transaction (404 / 409 `per_user_limit` / 422 `unknown_seat`) without locks.
 - **Why safe:** immutable data can't change between the read and the transaction. Seat *status* is never trusted from a pre-read; it's decided under `FOR UPDATE`.
 - **If shows become mutable later:** move these reads inside the transaction and lock the show row first (new step 0 in the lock order).
+
+## ADR-027 — Runtime image: Temurin 21 JRE on Alpine, non-root
+*Status: accepted (Phase 1)*
+
+- **Context:** The brief asks for a JRE or distroless non-root runtime and a Docker `HEALTHCHECK` on `/readyz`.
+- **Decision:** `eclipse-temurin:21.0.12_8-jre-alpine`, user uid 10001, Spring Boot layered jar extracted with `jarmode=tools`. The health check uses busybox `wget`. Image tags are pinned to an exact JDK build.
+- **Alternatives:** distroless java21 (no shell or HTTP client, so a `HEALTHCHECK` would need a second JVM started every 10 s, costing ~100 MB and CPU on a 1 GB box); full JDK image (larger attack surface, slower pulls).
+- **Failure mode prevented:** a health check that can't run, or one that steals memory from the app mid-burst.
+
+## ADR-028 — Startup ordering: migrations before the port opens
+*Status: accepted (Phase 1)*
+
+- **Decision:** Flyway runs during context refresh, before Tomcat binds the port. Until migrations finish, `/readyz` is unreachable (connection refused), which every orchestrator treats as not ready. Flyway retries the DB connection 30 × 2 s (plus Hikari's 20 s acquire wait per attempt) and serialises concurrent migrators with a Postgres advisory lock. Railway's deploy health check waits up to 300 s.
+- **Why:** "ready" can never be reported against a half-migrated schema, and a slow DB wake-up delays startup rather than crash-looping it.
+- **Measured locally (compose):** process start → ready in ~13 s, of which Flyway V1 is ~0.5 s.
+
+## ADR-029 — Docker build packages only; CI runs the tests
+*Status: accepted (Phase 1)*
+
+- **Decision:** The Dockerfile runs `package -DskipTests` (and skips Spotless/Checkstyle). CI runs `./mvnw -B verify` (all tests against Testcontainers, lint) and then `docker build`.
+- **Why:** Testcontainers needs a Docker daemon, which isn't available inside a Docker build (or on Railway's builder). Running tests in CI before the image build keeps the guarantee without Docker-in-Docker.
+
+## ADR-030 — Errors outside Spring MVC also use the envelope
+*Status: accepted (Phase 1)*
+
+- **Decision:** `ApiExceptionHandler` extends `ResponseEntityExceptionHandler`, so every Spring MVC exception keeps its correct status (404/405/415/…) but returns our envelope. A custom `ErrorController` replaces Boot's `/error` for errors raised in filters or via `sendError`. Static resource mapping is off, so unknown paths are 404 from our handler. The request-id filter also runs on error dispatches so the id survives.
+- **Failure mode prevented:** clients (and the burst tool) seeing two different error shapes depending on where an error originated.

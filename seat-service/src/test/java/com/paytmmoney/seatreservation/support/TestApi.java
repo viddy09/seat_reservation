@@ -71,6 +71,23 @@ public final class TestApi {
         return http.post("/shows/" + showId + "/reserve", body, headers);
     }
 
+    public HttpResponse<String> cancel(String token, String reservationId) {
+        return http.post("/reservations/" + reservationId + "/cancel", "", bearer(token));
+    }
+
+    /** Fetches the public reconcile report and asserts every check passed. */
+    public JsonNode assertReconciled(UUID showId) {
+        HttpResponse<String> response = http.get("/shows/" + showId + "/reconcile");
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode report = json(response);
+        assertThat(report.path("ok").asBoolean()).as(response.body()).isTrue();
+        return report;
+    }
+
+    public static String reservationId(HttpResponse<String> response) {
+        return json(response).path("reservation_id").asString();
+    }
+
     public static JsonNode json(HttpResponse<String> response) {
         return JSON.readTree(response.body());
     }

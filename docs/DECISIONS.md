@@ -240,6 +240,19 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Why:** `@Valid` runs before the controller, which would make a body-shape 422 win over a missing-key 400 and break the documented precedence. Domain validation is also unit-testable without Spring.
 - **Number strictness:** `250.5`, `"250"` and `1e3` for `price_paise` are 400 `invalid_json` (Jackson `ACCEPT_FLOAT_AS_INT` and `ALLOW_COERCION_OF_SCALARS` off); `0`/negative/missing are 422 `validation`.
 
+## ADR-035 — Reconcile is one SQL statement
+*Status: accepted (Phase 3)*
+
+- **Decision:** `GET /shows/{id}/reconcile` computes every number (seat states, seats in confirmed reservations, sum of user counters, users over the limit, seats listed by two reservations, taken seats without a matching reservation) in a single CTE query, then evaluates the checks in the domain.
+- **Why:** Postgres gives one statement one snapshot, even at READ COMMITTED. Separate queries polled mid-burst could each see a different commit and report a false mismatch. A REPEATABLE READ transaction would also work but adds nothing over one statement.
+- **Proven:** a test polls reconcile 60 times while 240 reserves are in flight; every sample is `ok`. Another test corrupts a counter directly and confirms reconcile reports `ok: false`.
+
+## ADR-036 — Cancel follows the reserve lock order and is exactly-once
+*Status: accepted (Phase 3)*
+
+- **Decision:** cancel locks (1) the reservation row `FOR UPDATE` filtered by owner, (2) decrements `user_show_counts`, (3) locks the seats in label order, then releases `WHERE reservation_id = $id AND status = 'confirmed'` and asserts the row count. An already-cancelled reservation returns 200 with no writes.
+- **Proven:** 20 concurrent cancels of one reservation → all 200, quota decremented once; a cancel racing 50 buyers of the same seat → at most one new owner, never resurrected, never shared.
+
 ## ADR-034 — Declines skip stack traces
 *Status: accepted (Phase 2)*
 

@@ -40,4 +40,12 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
 
 - **AI output:** sealed domain declines; seat/idempotency/money rules; HS256 JWT resource server with sub/role validators and a dev token issuer; strict JSON; show create/get; the reserve transaction exactly as designed (key claim → conditional per-user upsert → ordered `FOR UPDATE` → conditional update with row-count assert); SQLSTATE-based retry and DB failure mapping; unit, integration and concurrency tests (I1, I2, I4, I6); ADR-031…034.
 - **Scope note (stated to the human):** the reserve transaction already contains the per-user-limit step and handles multi-seat requests, because it is one algorithm; Phase 3 adds the dedicated multi-seat, limit and cancel concurrency tests.
+- **Human decision:** "yes pls go ahead". Push was still refused (credential `prapp200`) and no Railway account/CLI was available to the AI, so the AI continued with Phase 3 locally and left the deploy steps with the human.
 - **Problem hit:** 8 of 20 concurrency repetitions failed on the first run. Root cause was the test, not the service: repetitions reused the same user ids and idempotency keys on a new show, which the service correctly rejected as `idempotency_key_reused` (keys are scoped per user). Fixed by giving each repetition fresh user ids.
+
+## 2026-10-09 — Phase 3 (multi-seat, per-user limit, cancel, reconcile)
+
+- **AI output:** owner-only idempotent cancel in the global lock order; single-statement reconcile endpoint with six checks; endpoint tests (cancel, idempotent re-cancel, non-owner 404, rebook after cancel, replay after cancel, decline not memoised, all-or-nothing, reconcile detects corruption); concurrency tests repeated 5x (overlapping multi-seat in opposite orders, 10 parallel reserves with limit 4, parallel pairs, reconcile sampled during load, cancel racing 50 buyers, 20 concurrent cancels); ADR-035/036.
+- **AI self-correction:** first added a REPEATABLE READ template for reconcile, then removed it because a single statement already reads one snapshot.
+- **Result:** all 40 new tests passed on the first run; full build 126 tests green.
+- **Human decision:** _pending Phase 3 review; deploy still waiting on GitHub access and Railway project_

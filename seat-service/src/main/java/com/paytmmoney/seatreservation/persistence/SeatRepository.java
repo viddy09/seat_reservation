@@ -49,4 +49,16 @@ public class SeatRepository {
                 .params(reservationId, userId, showId, labels.toArray(String[]::new))
                 .update();
     }
+
+    /**
+     * Releases a reservation's seats (after {@link #lockForUpdate}). Guarding on {@code reservation_id} makes it
+     * impossible to free a seat that belongs to anyone else, even if the label list were wrong (I6).
+     */
+    public int release(UUID showId, UUID reservationId) {
+        return jdbc.sql("""
+                        UPDATE seats
+                        SET status = 'available', reservation_id = NULL, user_id = NULL, updated_at = now()
+                        WHERE show_id = ? AND reservation_id = ? AND status = 'confirmed'
+                        """).params(showId, reservationId).update();
+    }
 }

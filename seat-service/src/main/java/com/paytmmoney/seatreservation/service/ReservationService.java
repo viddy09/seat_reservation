@@ -8,6 +8,7 @@ import com.paytmmoney.seatreservation.domain.PerUserLimitException;
 import com.paytmmoney.seatreservation.domain.RequestFingerprint;
 import com.paytmmoney.seatreservation.domain.Reservation;
 import com.paytmmoney.seatreservation.domain.ReservationNotFoundException;
+import com.paytmmoney.seatreservation.domain.ReservationStatus;
 import com.paytmmoney.seatreservation.domain.Seat;
 import com.paytmmoney.seatreservation.domain.SeatSelection;
 import com.paytmmoney.seatreservation.domain.SeatStatus;
@@ -35,6 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ReservationService {
 
     private static final String RESERVE = "reserve";
+    private static final String CANCEL = "cancel";
 
     private final ShowRepository shows;
     private final ReservationRepository reservations;
@@ -141,6 +143,40 @@ public class ReservationService {
         return ReserveOutcome.created(claimed.get());
     }
 
+    /**
+     * Owner-only, idempotent cancel (ADR-016), in the same lock order as reserve: (1) reservation row, (2) user count
+     * row, (3) seat rows sorted by label. A non-owner gets 404, exactly like an unknown id.
+     */
+    public CancelOutcome cancel(UUID reservationId, String userId) {
+        return txRetry.run(
+                CANCEL,
+                () -> transaction.execute(status -> cancelOnce(reservationId, userId)),
+                ContentionException::new);
+    }
+
+    private CancelOutcome cancelOnce(UUID reservationId, String userId) {
+        // (1) Lock the reservation; concurrent cancels of it serialise here.
+        Reservation reservation =
+                reservations.lockForOwner(reservationId, userId).orElseThrow(ReservationNotFoundException::new);
+        if (reservation.status() == ReservationStatus.CANCELLED) {
+            return new CancelOutcome(reservation, false);
+        }
+        int seatCount = reservation.seats().size();
+
+        // (2) Return the seats to the user's quota.
+        if (userCounts.subtract(reservation.showId(), userId, seatCount) != 1) {
+            throw new IllegalStateException("No seat counter for reservation " + reservationId);
+        }
+
+        // (3) Lock the seats in label order, then free only those still pointing at this reservation.
+        seats.lockForUpdate(reservation.showId(), reservation.seats());
+        int released = seats.release(reservation.showId(), reservationId);
+        if (released != seatCount) {
+            throw new IllegalStateException("Released " + released + " of " + seatCount + " seats of " + reservationId);
+        }
+        return new CancelOutcome(reservations.markCancelled(reservationId), true);
+    }
+
     public Reservation get(UUID reservationId, String userId) {
         return reservations.findByIdForOwner(reservationId, userId).orElseThrow(ReservationNotFoundException::new);
     }
@@ -148,6 +184,9 @@ public class ReservationService {
     /** Input from the API layer. {@code seats} and the keys are raw: validation happens here, in a fixed order. */
     public record UserReserveRequest(
             UUID showId, String userId, String headerKey, String bodyKey, List<String> seats) {}
+
+    /** {@code cancelledNow} is false for an idempotent re-cancel; only real cancels are counted in metrics. */
+    public record CancelOutcome(Reservation reservation, boolean cancelledNow) {}
 
     public record ReserveOutcome(Reservation reservation, boolean replayed) {
 

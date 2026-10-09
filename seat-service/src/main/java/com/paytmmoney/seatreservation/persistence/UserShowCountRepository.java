@@ -34,4 +34,14 @@ public class UserShowCountRepository {
                 .optional()
                 .isPresent();
     }
+
+    /**
+     * Cancel lock-order step 2: give the seats back to the user's quota. Returns rows updated (1 when consistent); the
+     * {@code seat_count >= 0} CHECK makes drift fail loudly rather than go negative.
+     */
+    public int subtract(UUID showId, String userId, int seats) {
+        return jdbc.sql("UPDATE user_show_counts SET seat_count = seat_count - ? WHERE show_id = ? AND user_id = ?")
+                .params(seats, showId, userId)
+                .update();
+    }
 }

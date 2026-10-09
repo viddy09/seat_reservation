@@ -50,6 +50,13 @@ public class ReservationController {
                 .body(response);
     }
 
+    /** 200 with the reservation now cancelled; re-cancel is also 200 (idempotent); non-owner or unknown is 404. */
+    @PostMapping("/reservations/{reservationId}/cancel")
+    public ReservationResponse cancel(@PathVariable UUID reservationId) {
+        return ReservationResponse.from(
+                reservations.cancel(reservationId, currentUser.id()).reservation());
+    }
+
     @GetMapping("/reservations/{reservationId}")
     public ReservationResponse get(@PathVariable UUID reservationId) {
         return ReservationResponse.from(reservations.get(reservationId, currentUser.id()));

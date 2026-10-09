@@ -73,6 +73,27 @@ public class ReservationRepository {
                 .optional();
     }
 
+    /**
+     * Cancel lock-order step 1: row-lock the owner's reservation. A concurrent cancel of the same reservation waits
+     * here and then sees {@code cancelled}, so the seat count is decremented exactly once.
+     */
+    public Optional<Reservation> lockForOwner(UUID id, String userId) {
+        return jdbc.sql("SELECT " + COLUMNS + " FROM reservations WHERE id = ? AND user_id = ? FOR UPDATE")
+                .params(id, userId)
+                .query(ReservationRepository::map)
+                .optional();
+    }
+
+    /** Marks a locked, confirmed reservation cancelled and returns its new state. */
+    public Reservation markCancelled(UUID id) {
+        return jdbc.sql("UPDATE reservations SET status = 'cancelled', updated_at = now()"
+                        + " WHERE id = ? AND status = 'confirmed' RETURNING " + COLUMNS)
+                .param(id)
+                .query(ReservationRepository::map)
+                .optional()
+                .orElseThrow(() -> new IllegalStateException("Reservation " + id + " was not confirmed under lock"));
+    }
+
     private static Reservation map(ResultSet rs, int row) throws SQLException {
         return new Reservation(
                 rs.getObject("id", UUID.class),

@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -46,6 +47,7 @@ public class HttpObservabilityFilter extends OncePerRequestFilter {
     };
 
     private static final Logger access = LoggerFactory.getLogger("access");
+    private static final String RESERVATION_ID_KEY = "reservation_id";
 
     private final MeterRegistry registry;
     private final ReservationMetrics reservations;
@@ -130,9 +132,10 @@ public class HttpObservabilityFilter extends OncePerRequestFilter {
         if (declineReason.isPresent()) {
             event = event.addKeyValue("decline_reason", declineReason.get());
         }
+        // On /reservations/{id}/* the id is already in the MDC; writing it twice makes the JSON encoder drop the line.
         Optional<String> reservationId = RequestOutcomes.reservationId(request);
-        if (reservationId.isPresent()) {
-            event = event.addKeyValue("reservation_id", reservationId.get());
+        if (reservationId.isPresent() && MDC.get(RESERVATION_ID_KEY) == null) {
+            event = event.addKeyValue(RESERVATION_ID_KEY, reservationId.get());
         }
         event.log("{} {} {} {}ms", request.getMethod(), route, status, latency.toMillis());
     }

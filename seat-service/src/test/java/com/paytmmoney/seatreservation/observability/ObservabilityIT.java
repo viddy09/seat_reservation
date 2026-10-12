@@ -166,8 +166,10 @@ class ObservabilityIT {
         assertThat(scrape)
                 .contains("route=\"/shows/{showId}\"")
                 .contains("route=\"unmatched\"")
-                .doesNotContain(showId.toString() + "\",")
                 .contains("http_request_duration_seconds_bucket{");
+        // seatres_seats{show_id} is a deliberate, bounded per-show label; HTTP labels must never carry ids.
+        assertThat(scrape.lines().filter(line -> line.startsWith("http_")))
+                .noneMatch(line -> line.contains(showId.toString()));
     }
 
     @Test
@@ -196,6 +198,27 @@ class ObservabilityIT {
         assertThat(json.path("show_id").asString()).isEqualTo(showId.toString());
         assertThat(json.path("reservation_id").asString()).isNotBlank();
         assertThat(output.getOut()).as("tokens are never logged").doesNotContain(token);
+    }
+
+    @Test
+    void cancelAlsoGetsItsAccessLine(CapturedOutput output) {
+        UUID showId = api.createShow(List.of("C1"), 4);
+        String token = api.userToken("cancel-log-" + run);
+        String id = reservationId(api.reserve(token, showId, "k", List.of("C1")));
+        Map<String, String> headers = new LinkedHashMap<>(bearer(token));
+        headers.put("X-Request-ID", "cancel-" + run);
+
+        api.http().post("/reservations/" + id + "/cancel", "", headers);
+
+        String line = output.getOut()
+                .lines()
+                .filter(l -> l.contains("\"cancel-" + run + "\"") && l.contains("\"logger_name\":\"access\""))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no access log line for the cancel"));
+        JsonNode json = TestApi.JSON.readTree(line);
+        assertThat(json.path("outcome").asString()).isEqualTo("cancelled");
+        assertThat(json.path("reservation_id").asString()).isEqualTo(id);
+        assertThat(output.getAll()).doesNotContain("has already been written");
     }
 
     private String scrape() {

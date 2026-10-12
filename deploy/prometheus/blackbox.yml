@@ -1,0 +1,16 @@
+# Blackbox exporter modules used by alerts.yml.
+modules:
+  # GET /readyz must be 200 (readiness includes the DB, on its own small pool).
+  http_ready:
+    prober: http
+    timeout: 3s
+    http:
+      valid_status_codes: [200]
+
+  # GET /shows/{id}/reconcile must be 200 AND report every check passing.
+  http_reconcile:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"ok":true']

@@ -1,0 +1,33 @@
+# Example Prometheus config for watching the service (local compose or the live URL).
+# Replace TARGET with host:port (e.g. app:8080 in compose, or <app>.up.railway.app:443 with scheme https).
+global:
+  scrape_interval: 15s
+
+rule_files: ["alerts.yml"]
+
+scrape_configs:
+  - job_name: seat-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["TARGET"]
+
+  - job_name: seat-service-readyz
+    metrics_path: /probe
+    params: {module: [http_ready]}
+    static_configs:
+      - targets: ["http://TARGET/readyz"]
+    relabel_configs:
+      - {source_labels: [__address__], target_label: __param_target}
+      - {source_labels: [__param_target], target_label: instance}
+      - {target_label: __address__, replacement: "blackbox:9115"}
+
+  - job_name: seat-service-reconcile
+    metrics_path: /probe
+    params: {module: [http_reconcile]}
+    static_configs:
+      # One target per show that is on sale.
+      - targets: ["http://TARGET/shows/SHOW_ID/reconcile"]
+    relabel_configs:
+      - {source_labels: [__address__], target_label: __param_target}
+      - {source_labels: [__param_target], target_label: instance}
+      - {target_label: __address__, replacement: "blackbox:9115"}

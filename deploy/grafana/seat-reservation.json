@@ -1,0 +1,78 @@
+{
+  "title": "Seat reservation",
+  "uid": "seat-reservation",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "datasource", "type": "datasource", "query": "prometheus"},
+      {
+        "name": "show_id",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "query": "label_values(seatres_seats, show_id)",
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat", "title": "5xx (last 15m) — must be 0",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(increase(http_requests_total{code=~\"5..\"}[15m])) or vector(0)"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "type": "stat", "title": "Seats (selected show)",
+      "gridPos": {"x": 6, "y": 0, "w": 10, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum by (status) (seatres_seats{show_id=\"$show_id\"})", "legendFormat": "{{status}}"}]
+    },
+    {
+      "type": "stat", "title": "DB tx retries (15m) — should be 0",
+      "gridPos": {"x": 16, "y": 0, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(increase(db_tx_retries_total[15m])) or vector(0)"}]
+    },
+    {
+      "type": "timeseries", "title": "Reserve outcomes /s",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "sum(rate(seatres_reservations_confirmed_total[1m]))", "legendFormat": "confirmed"},
+        {"expr": "sum by (reason) (rate(seatres_reservations_declined_total[1m]))", "legendFormat": "declined: {{reason}}"},
+        {"expr": "sum(rate(seatres_reservations_cancelled_total[1m]))", "legendFormat": "cancelled"}
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Requests /s by route and code",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum by (route, code) (rate(http_requests_total[1m]))", "legendFormat": "{{route}} {{code}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Reserve latency (s)",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{route=\"/shows/{showId}/reserve\"}[1m])))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{route=\"/shows/{showId}/reserve\"}[1m])))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{route=\"/shows/{showId}/reserve\"}[1m])))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "type": "timeseries", "title": "DB pool (main and obs)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "db_pool_acquired", "legendFormat": "acquired {{pool}}"},
+        {"expr": "db_pool_pending", "legendFormat": "waiting {{pool}}"},
+        {"expr": "rate(db_pool_wait_seconds_sum[1m]) / rate(db_pool_wait_seconds_count[1m])", "legendFormat": "avg wait s {{pool}}"},
+        {"expr": "increase(db_pool_timeouts_total[1m])", "legendFormat": "timeouts {{pool}}"}
+      ]
+    }
+  ]
+}

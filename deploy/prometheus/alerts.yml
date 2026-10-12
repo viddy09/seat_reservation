@@ -1,0 +1,78 @@
+# The 2am paging list (docs/OBSERVABILITY.md) as Prometheus alerting rules.
+# Load with: rule_files: ["alerts.yml"] in prometheus.yml, scraping the service's /metrics.
+groups:
+  - name: seat-reservation
+    rules:
+      - alert: SeatServiceAny5xx
+        # Zero 5xx is a correctness requirement, not an SLO: page on the first one.
+        expr: sum(increase(http_requests_total{code=~"5.."}[5m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "seat-service returned {{ $value }} 5xx responses in 5m"
+          runbook: "Find the request_id in the ERROR log line (logger_name != access); 503 = DB unreachable, 500 = bug."
+
+      - alert: SeatServiceReconcileFailing
+        # Blackbox exporter probes GET /shows/{id}/reconcile for the on-sale shows and requires "ok":true in the body
+        # (module http_reconcile in blackbox.yml). Any failed probe means the books don't balance.
+        expr: min by (instance) (probe_success{job="seat-service-reconcile"}) == 0
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "Reconcile failing for {{ $labels.instance }}: books don't balance"
+          runbook: "Read the failing check names in the /reconcile body; compare seats vs reservations vs user_show_counts for that show."
+
+      - alert: SeatServiceSeatTotalChanged
+        # Seat gauges come from the DB at scrape time. Seats are never added or removed after creation, so the sum
+        # over states for a show must never change.
+        expr: sum by (show_id) (seatres_seats) != sum by (show_id) (seatres_seats offset 5m)
+        labels: {severity: page}
+        annotations:
+          summary: "Seat total changed for show {{ $labels.show_id }}"
+
+      - alert: SeatServiceTxRetriesSpiking
+        # The global lock order should make this zero; any sustained rate means a code path broke the order.
+        expr: sum(rate(db_tx_retries_total[5m])) > 0.1
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "Deadlock/serialization retries at {{ $value }}/s"
+          runbook: "Check WARN logs 'Retrying transaction' for the operation; review lock order (DESIGN.md §5)."
+
+      - alert: SeatServiceContentionDeclines
+        expr: sum(increase(seatres_reservations_declined_total{reason=~"contention|server_busy"}[5m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "Requests declined for contention/overload (retries exhausted or pool/statement timeout)"
+
+      - alert: SeatServiceReadinessFlapping
+        # Scraped by Prometheus directly from /readyz via blackbox exporter (probe_success), or use 'up'.
+        expr: changes(probe_success{job="seat-service-readyz"}[10m]) > 2 or avg_over_time(up{job="seat-service"}[5m]) < 0.9
+        labels: {severity: page}
+        annotations:
+          summary: "Readiness flapping or instance down"
+          runbook: "readyz uses the obs pool: check db_pool_*{pool=\"obs\"} and Postgres reachability; liveness should stay UP."
+
+      - alert: SeatServiceReserveP99OverSlo
+        # SLO: p99 reserve latency < 2.5s under normal load (bursts queue by design, up to the 20s pool wait).
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{route="/shows/{showId}/reserve"}[5m]))) > 2.5
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "Reserve p99 latency {{ $value }}s over 2.5s SLO"
+
+      - alert: SeatServiceDbPoolSaturated
+        # Requests are queuing for connections; sustained waits approach the 20s acquire timeout (-> 429s).
+        expr: |
+          max(db_pool_pending{pool="main"}) > 50
+            and (sum(rate(db_pool_wait_seconds_sum{pool="main"}[5m])) / sum(rate(db_pool_wait_seconds_count{pool="main"}[5m]))) > 2
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "Main DB pool saturated: {{ $value }} waiting, average wait > 2s"
+
+      - alert: SeatServiceDbPoolTimeouts
+        expr: sum(increase(db_pool_timeouts_total[5m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "Pool acquire timeouts (each one became a 429)"

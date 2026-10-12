@@ -29,7 +29,7 @@ COPY --from=build /extracted/application/ ./
 USER 10001
 
 ENV PORT=8080 \
-    JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+    JAVA_OPTS="-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError"
 EXPOSE 8080
 
 # Same target as the platform health check: readiness, which includes the database (on its own small pool).

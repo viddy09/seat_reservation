@@ -73,19 +73,4 @@ public class ShowRepository {
                 .query((rs, row) -> new Seat(rs.getString("seat_label"), SeatStatus.fromDb(rs.getString("status"))))
                 .list();
     }
-
-    /**
-     * Labels from {@code labels} that do not exist in the show. Safe outside the reserve transaction because a show's
-     * seat set never changes after creation (ADR-026).
-     */
-    public List<String> findMissingSeats(UUID showId, List<String> labels) {
-        return jdbc.sql("""
-                        SELECT requested.label
-                        FROM unnest(?::text[]) AS requested(label)
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM seats s WHERE s.show_id = ? AND s.seat_label = requested.label)
-                        """).params(labels.toArray(String[]::new), showId).query(String.class).list().stream()
-                .sorted()
-                .toList();
-    }
 }

@@ -17,8 +17,9 @@ import com.paytmmoney.seatreservation.domain.Show;
 import com.paytmmoney.seatreservation.domain.ShowNotFoundException;
 import com.paytmmoney.seatreservation.domain.UnknownSeatException;
 import com.paytmmoney.seatreservation.persistence.ReservationRepository;
+import com.paytmmoney.seatreservation.persistence.ReservePrecheckRepository;
+import com.paytmmoney.seatreservation.persistence.ReservePrecheckRepository.Precheck;
 import com.paytmmoney.seatreservation.persistence.SeatRepository;
-import com.paytmmoney.seatreservation.persistence.ShowRepository;
 import com.paytmmoney.seatreservation.persistence.TxRetry;
 import com.paytmmoney.seatreservation.persistence.UserShowCountRepository;
 import java.util.List;
@@ -38,7 +39,7 @@ public class ReservationService {
     private static final String RESERVE = "reserve";
     private static final String CANCEL = "cancel";
 
-    private final ShowRepository shows;
+    private final ReservePrecheckRepository prechecks;
     private final ReservationRepository reservations;
     private final UserShowCountRepository userCounts;
     private final SeatRepository seats;
@@ -46,13 +47,13 @@ public class ReservationService {
     private final TxRetry txRetry;
 
     public ReservationService(
-            ShowRepository shows,
+            ReservePrecheckRepository prechecks,
             ReservationRepository reservations,
             UserShowCountRepository userCounts,
             SeatRepository seats,
             TransactionTemplate transaction,
             TxRetry txRetry) {
-        this.shows = shows;
+        this.prechecks = prechecks;
         this.reservations = reservations;
         this.userCounts = userCounts;
         this.seats = seats;
@@ -62,17 +63,24 @@ public class ReservationService {
 
     /** {@code request.userId()} comes from the verified token only, never from the request body (I6). */
     public ReserveOutcome reserve(UserReserveRequest request) {
-        // Pre-transaction checks, in the fixed order of ADR-018. None of them takes a lock: they read only
-        // immutable show data (ADR-026), so they can't race with anything.
+        // Pre-transaction checks, in the fixed order of ADR-018, from one non-locking read (ADR-040). Show data is
+        // immutable (ADR-026), so those checks can't race with anything.
         String key = IdempotencyKey.resolve(request.headerKey(), request.bodyKey());
         List<String> sortedSeats = SeatSelection.forReservation(request.seats());
-        Show show = shows.findById(request.showId()).orElseThrow(ShowNotFoundException::new);
+        Precheck precheck = prechecks
+                .find(request.showId(), request.userId(), key, sortedSeats)
+                .orElseThrow(ShowNotFoundException::new);
+        Show show = precheck.show();
         if (sortedSeats.size() > show.perUserLimit()) {
             throw new PerUserLimitException(show.perUserLimit());
         }
-        List<String> missing = shows.findMissingSeats(show.id(), sortedSeats);
-        if (!missing.isEmpty()) {
-            throw new UnknownSeatException(missing);
+        if (!precheck.missingSeats().isEmpty()) {
+            throw new UnknownSeatException(precheck.missingSeats());
+        }
+        // Hot-path decline: a seat already taken in a committed snapshot. Skipped when this key already has a
+        // reservation, so a retry of a successful request still reaches the transaction and replays (200).
+        if (!precheck.keyExists() && !precheck.unavailableSeats().isEmpty()) {
+            throw new SeatTakenException(precheck.unavailableSeats());
         }
 
         ReserveAttempt attempt = new ReserveAttempt(

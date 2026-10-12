@@ -8,6 +8,8 @@ COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 COPY config/ config/
 COPY seat-service/pom.xml seat-service/pom.xml
+# The parent lists every module; the burst tool's pom must exist even though only seat-service is built here.
+COPY burst/pom.xml burst/pom.xml
 RUN chmod +x mvnw && ./mvnw -B -q -pl seat-service -am dependency:go-offline
 
 COPY seat-service/src seat-service/src

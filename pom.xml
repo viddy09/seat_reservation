@@ -19,6 +19,7 @@
 
     <modules>
         <module>seat-service</module>
+        <module>burst</module>
     </modules>
 
     <properties>

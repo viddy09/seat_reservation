@@ -1,4 +1,4 @@
-.PHONY: run test lint fmt up down logs
+.PHONY: run test lint fmt up down logs burst
 
 MVNW := ./mvnw -B
 
@@ -33,3 +33,9 @@ down:
 ## logs: follow app logs (JSON, one line per event)
 logs:
 	docker compose logs -f app
+
+## burst: stampede + invariant checks, e.g. make burst URL=http://localhost:8080 (needs ADMIN_API_KEY)
+URL ?= http://localhost:8080
+ADMIN_API_KEY ?= local-dev-admin-key
+burst:
+	ADMIN_API_KEY=$(ADMIN_API_KEY) BURST_REBUILD=1 ./burst.sh $(URL) $(ARGS)

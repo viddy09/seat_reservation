@@ -287,6 +287,18 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Decision:** the burst tool and the integration-test HTTP client retry a request (≤ 5 attempts, short backoff) only on `ConnectException`, i.e. when the TCP connection was refused and nothing was sent. The burst report prints how many such retries happened.
 - **Why:** on Windows the listen backlog is capped (~200) below a 500-connection simultaneous start, so some connects are refused before reaching Tomcat. That's a property of the client machine, not the service. Retrying after a request was sent could duplicate it, so that is never done; those failures count as transport errors and fail the run.
 
+## ADR-042 — Heap at 70% of the container
+*Status: accepted (Phase 6; supersedes the 75% in ADR-024)*
+
+- **Decision:** `-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError` (overridable via `JAVA_OPTS`).
+- **Why:** on Railway's 1 GB trial container, 75% heap (768 MB) leaves ~250 MB for metaspace, code cache, direct buffers and thread stacks, too close to an OOM kill. Measured idle RSS is ~440 MB; the workload is many small short-lived objects, not a large heap. `ExitOnOutOfMemoryError` makes a real OOM a clean restart instead of a degraded process.
+
+## ADR-043 — Paging rules ship with the code
+*Status: accepted (Phase 6)*
+
+- **Decision:** the paging list lives in `deploy/prometheus/alerts.yml` (checked with `promtool`), the reconcile alert uses a blackbox probe that requires `"ok":true`, and a Grafana dashboard sits in `deploy/grafana/`.
+- **Why:** a paging list that exists only in prose drifts from the metric names; rules in the repo are reviewed and versioned with the code that emits the metrics. No invented metrics: reconcile is probed through its public endpoint rather than duplicated as a gauge.
+
 ## ADR-034 — Declines skip stack traces
 *Status: accepted (Phase 2)*
 

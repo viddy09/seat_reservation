@@ -67,4 +67,11 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
   - Docker Desktop port forwarding inflated latency; in-network run measured separately.
 - **Bugs the AI found and fixed while doing this:** the access log silently dropped every cancel line (`reservation_id` written twice → JSON encoder error); a metrics test wrongly treated the deliberate `show_id` gauge label as a leak; the burst poller shared the load's in-flight cap and sampled only 6 times per run (now 48).
 - **Result:** full 20k burst PASS locally (in-network p99 1.76 s, 0 errors). Railway run pending the owner's project/URL.
-- **Human decision:** _pending Phase 5 review_
+- **Human decision:** "do all": proceed with every remaining item that does not need the Railway account.
+
+## 2026-10-12 — Phase 6 (hardening and docs)
+
+- **AI actions and evidence:** cold-start test (zero 5xx, ready in ~16–18 s); SIGTERM mid-burst (zero 5xx, graceful drain, correctness held); fresh-clone verification (`./mvnw verify` 138 tests green, `docker compose up --build` ready ~9 s, 20k burst PASS); float/secret grep; README examples executed against the running service.
+- **AI output:** README.md, docs/WRITEUP.md (AI-usage section left as a TODO for the author), docs/OBSERVABILITY.md, docs/CHECKLIST.md, Prometheus alert rules (validated with promtool), blackbox and scrape configs, Grafana dashboard, ADR-042/043; heap lowered to 70% for the 1 GB container.
+- **AI self-corrections:** the first draft of the alert rules referenced a metric that doesn't exist (`seatres_reconcile_failed`) and a convoluted balance expression; replaced with a blackbox probe of `/reconcile` and a simple seat-total rule before committing. The burst report counted samples taken while the service was down as invariant failures; now reported as "unreachable". An accidental throwaway commit was made and immediately undone with a soft reset before any push (history unaffected).
+- **Still open:** Railway deployment and the live burst (needs the owner's Railway account); the author's AI-usage section.

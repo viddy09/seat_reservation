@@ -42,6 +42,27 @@ failed; final counts `{"total":1000,"available":35,"held":0,"confirmed":965}`; m
 5. **JIT warm-up** is visible: a second identical run on the same container was ~25% faster (27.2 s → 21.1 s, max
    13.2 s → 7.2 s). Relevant for cold starts on the platform (Phase 6 measures it).
 
+## Restarts (local compose), 2026-10-12
+
+**Cold start** (`docker compose restart app`, polling `/healthz`, `/readyz` and `GET /shows/{id}` every 100 ms from
+t=0):
+
+| t | /healthz | /readyz | GET /shows/{id} |
+|---|---|---|---|
+| 0.2 s | 200 | 200 | 200 (old process still draining) |
+| 1.0 s | refused | refused | refused (process down, port closed) |
+| ~16–18 s | 200 | 200 | 200 (migrations done, port open) |
+
+Zero 5xx at any point; readiness never reported UP before the database and migrations were ready (ADR-028).
+
+**SIGTERM mid-burst** (`docker compose stop -t 45 app` 14 s into a 20k burst, then start): 0 × 5xx; graceful shutdown
+logged "Commencing graceful shutdown … complete". While the single instance was down, 13,322 connects were refused and
+22 idle keep-alive connections were closed by the shutdown (transport errors, not HTTP errors). Correctness held
+through the restart: exactly one winner per hot seat, confirmed seats == seats in 201s minus cancels (917 == 917),
+final reconcile ok. In-process counters restarted from zero, so counter-vs-observed checks don't apply across a
+restart (ADR-019); DB gauges and `/reconcile` stayed authoritative. On Railway a redeploy starts the new instance and
+waits for `/readyz` before stopping the old one, so a deploy doesn't open that window.
+
 ## Railway (live URL)
 
 _Pending: the Railway project and URL are being set up by the repository owner._

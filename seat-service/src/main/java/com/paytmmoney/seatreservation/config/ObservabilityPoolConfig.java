@@ -3,6 +3,7 @@ package com.paytmmoney.seatreservation.config;
 import com.paytmmoney.seatreservation.persistence.ObservabilityPool;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +20,8 @@ public class ObservabilityPoolConfig {
     private static final long HIKARI_MIN_TIMEOUT_MILLIS = 250;
 
     @Bean(destroyMethod = "close")
-    ObservabilityPool observabilityPool(JdbcConnectionDetails connection, AppProperties properties) {
+    ObservabilityPool observabilityPool(
+            JdbcConnectionDetails connection, AppProperties properties, MeterRegistry meterRegistry) {
         AppProperties.Observability settings = properties.observability();
 
         HikariConfig config = new HikariConfig();
@@ -38,6 +40,8 @@ public class ObservabilityPoolConfig {
         config.addDataSourceProperty(
                 "options", "-c statement_timeout=" + settings.statementTimeout().toMillis());
         config.addDataSourceProperty("ApplicationName", "seat-service-obs");
+        // Exported as db_pool_*{pool="obs"} alongside the main pool (see MetricsConfig).
+        config.setMetricRegistry(meterRegistry);
         return new ObservabilityPool(new HikariDataSource(config));
     }
 }

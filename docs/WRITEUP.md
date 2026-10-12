@@ -137,9 +137,45 @@ each repeated 5× with a start gate.
 
 ## 7. AI usage
 
-> **TODO (author):** write this section yourself, in your own words, from the factual record in
-> [AI_LOG.md](AI_LOG.md): what you asked for, what the assistant proposed, where you accepted, changed or overrode it,
-> and what you verified yourself.
+*Drafted with the assistant at my request from the factual record in [AI_LOG.md](AI_LOG.md).*
+
+I built this with an AI coding assistant (Claude Code) working in my repository, in a phased way I set up
+beforehand: I wrote a detailed brief ([ASSIGNMENT.md](ASSIGNMENT.md)) with the stack, the correctness invariants, the
+exact transaction design, and a working agreement. The agreement required stopping after every phase for my go-ahead,
+small Conventional Commits, a decision log, and running the build and tests before calling anything done.
+
+**What the assistant did.** It wrote the design document and decision log, all application and test code, the burst
+tool, the Docker/compose/CI/Railway configuration and the documentation. It also ran every verification itself
+(`./mvnw verify`, compose smoke tests, the burst locally and against the live URL, a fresh-clone build) and reported
+the output to me at each stop.
+
+**What I decided.**
+- Java 21 instead of the brief's preferred Java 25 (that's the JDK on my machine).
+- Railway as the platform, after asking the assistant to compare Fly.io and Railway pricing (it recommended Railway).
+- I left the base package name to the assistant ("as per standard"); it chose `com.paytmmoney.seatreservation`.
+- I approved the Phase 0 design, including five resolutions that went beyond the brief: 409 `contention` when retries
+  are exhausted, 429 vs 503 for pool saturation vs DB loss, 401 for a missing admin key, `COLLATE "C"` on seat labels,
+  and gauges bounded to the 50 newest shows.
+- I approved each phase before the next one started.
+- I handled what needed my accounts: GitHub push access (my saved credential was a different account, which I fixed)
+  and the Railway login. The assistant then created the project and deployed with the CLI from my session.
+- I changed my own brief twice: I asked the assistant to do the remaining Phase 6 work in one go ("do all"), and I
+  asked it to draft this section, which the brief originally reserved for me.
+
+**What went wrong, and how it was caught.** The record shows the assistant's own mistakes, found by running things
+rather than by inspection:
+- A concurrency test reused user ids across repetitions; the service was right, the test was wrong.
+- The access log silently dropped every cancel line (duplicate JSON key).
+- A Prometheus gauge was silently renamed by the exporter.
+- A first draft of the alert rules referenced a metric that doesn't exist.
+- The burst report counted unreachable samples as invariant failures.
+
+Load testing also drove the one real design change after Phase 0: a non-locking pre-read that declines already-taken
+seats (ADR-040). It cut worst-case latency from ~16 s to ~4 s locally.
+
+**Where to look.** Every decision, with the alternatives rejected and the failure mode it prevents, is in
+[DECISIONS.md](DECISIONS.md). The request-by-request record of what I asked, what the assistant proposed and what I
+changed is in [AI_LOG.md](AI_LOG.md).
 
 ## 8. What's next
 

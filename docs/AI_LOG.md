@@ -82,3 +82,7 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
 - **AI actions:** installed the Railway CLI; created project `seat-reservation`, a PostgreSQL service and an `app` service; generated `JWT_SECRET`/`ADMIN_API_KEY` locally (stored outside the repo at the owner's home directory, passed to Railway via stdin, never printed); set `DATABASE_URL=${{Postgres.DATABASE_URL}}` (verified it resolves to the private `postgres.railway.internal`), `ALLOW_DEV_TOKENS=true`, `DB_MAX_CONNS=20`; deployed with `railway up`; generated the domain https://app-production-70543.up.railway.app.
 - **Verification:** live smoke flow; two full 20k bursts both PASS (0 × 5xx, 0 transport errors, p99 1,119 ms and 496 ms); 0 ERROR/WARN server log lines, 0 pool timeouts, 0 tx retries; redeploy polled every 0.5 s: 118/118 successful.
 - **Noted:** Railway deprecates `railway.json` (works until 2026-12-01).
+
+## 2026-10-12 — AI-usage section
+
+- **Human override of the brief:** the brief said the AI must not write the WRITEUP "AI usage" section in the author's voice. Asked to write it for the author, the AI noted the original instruction and then drafted it at the author's request. It was restricted to facts in this log, the opinions it had first included were removed, and it is labelled "Drafted with the assistant at my request".

@@ -1,9 +1,12 @@
 package com.paytmmoney.seatreservation.api;
 
+import com.paytmmoney.seatreservation.observability.RequestOutcomes;
 import com.paytmmoney.seatreservation.security.CurrentUser;
 import com.paytmmoney.seatreservation.service.ReservationService;
+import com.paytmmoney.seatreservation.service.ReservationService.CancelOutcome;
 import com.paytmmoney.seatreservation.service.ReservationService.ReserveOutcome;
 import com.paytmmoney.seatreservation.service.ReservationService.UserReserveRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
@@ -38,13 +41,16 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> reserve(
             @PathVariable UUID showId,
             @RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false) String headerKey,
-            @RequestBody ReserveRequest body) {
+            @RequestBody ReserveRequest body,
+            HttpServletRequest request) {
         ReserveOutcome outcome = reservations.reserve(
                 new UserReserveRequest(showId, currentUser.id(), headerKey, body.idempotencyKey(), body.seats()));
         ReservationResponse response = ReservationResponse.from(outcome.reservation());
         if (outcome.replayed()) {
+            RequestOutcomes.recordReservation(request, RequestOutcomes.IDEMPOTENT_REPLAY, response.reservationId());
             return ResponseEntity.ok().header(REPLAYED_HEADER, "true").body(response);
         }
+        RequestOutcomes.recordReservation(request, RequestOutcomes.CONFIRMED, response.reservationId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .location(URI.create("/reservations/" + response.reservationId()))
                 .body(response);
@@ -52,9 +58,13 @@ public class ReservationController {
 
     /** 200 with the reservation now cancelled; re-cancel is also 200 (idempotent); non-owner or unknown is 404. */
     @PostMapping("/reservations/{reservationId}/cancel")
-    public ReservationResponse cancel(@PathVariable UUID reservationId) {
-        return ReservationResponse.from(
-                reservations.cancel(reservationId, currentUser.id()).reservation());
+    public ReservationResponse cancel(@PathVariable UUID reservationId, HttpServletRequest request) {
+        CancelOutcome outcome = reservations.cancel(reservationId, currentUser.id());
+        RequestOutcomes.recordReservation(
+                request,
+                outcome.cancelledNow() ? RequestOutcomes.CANCELLED : RequestOutcomes.ALREADY_CANCELLED,
+                reservationId);
+        return ReservationResponse.from(outcome.reservation());
     }
 
     @GetMapping("/reservations/{reservationId}")

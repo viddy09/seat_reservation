@@ -30,11 +30,8 @@ public class ErrorEnvelopeController implements ErrorController {
                     request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI),
                     (Throwable) request.getAttribute(RequestDispatcher.ERROR_EXCEPTION));
         }
-        ErrorResponse envelope = ErrorResponse.of(
-                ErrorCodes.forStatus(status),
-                ErrorCodes.messageFor(status),
-                Map.of(),
-                RequestIdFilter.current(request));
+        ErrorResponse envelope =
+                ErrorResponses.of(request, ErrorCodes.forStatus(status), ErrorCodes.messageFor(status), Map.of());
         return ResponseEntity.status(status).body(envelope);
     }
 

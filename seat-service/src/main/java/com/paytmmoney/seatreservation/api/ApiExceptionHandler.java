@@ -29,6 +29,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * The single place where exceptions become HTTP responses. Every response it produces uses the {@link ErrorResponse}
  * envelope, including Spring MVC's own exceptions (unknown route, wrong method, unreadable JSON, ...), which
  * {@link ResponseEntityExceptionHandler} already maps to the correct status.
+ *
+ * <p>Expected declines are not logged here: the access log line for the request carries the outcome, so there is
+ * exactly one line per request. Only unexpected errors log, at ERROR with a stack trace.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
@@ -42,8 +45,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (status.is5xxServerError()) {
             log.error("Unhandled framework error", ex);
         }
-        ErrorResponse envelope = ErrorResponse.of(
-                ErrorCodes.forStatus(status), ErrorCodes.messageFor(status), Map.of(), requestId(request));
+        ErrorResponse envelope = ErrorResponses.of(
+                servlet(request), ErrorCodes.forStatus(status), ErrorCodes.messageFor(status), Map.of());
         return ResponseEntity.status(status).headers(headers).body(envelope);
     }
 
@@ -51,11 +54,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ErrorResponse envelope = ErrorResponse.of(
+        ErrorResponse envelope = ErrorResponses.of(
+                servlet(request),
                 ErrorCodes.INVALID_JSON,
                 "Request body is not valid JSON for this endpoint",
-                Map.of(),
-                requestId(request));
+                Map.of());
         return ResponseEntity.badRequest().headers(headers).body(envelope);
     }
 
@@ -85,25 +88,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             TypeMismatchException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         if (ex instanceof MethodArgumentTypeMismatchException mismatch
                 && mismatch.getParameter().hasParameterAnnotation(PathVariable.class)) {
-            ErrorResponse envelope = ErrorResponse.of(ErrorCodes.NOT_FOUND, "Not Found", Map.of(), requestId(request));
+            ErrorResponse envelope = ErrorResponses.of(servlet(request), ErrorCodes.NOT_FOUND, "Not Found", Map.of());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).headers(headers).body(envelope);
         }
         return super.handleTypeMismatch(ex, headers, status, request);
     }
 
-    /**
-     * Expected declines. Logged at INFO without a stack trace: under a stampede these are the normal outcome, not
-     * errors.
-     */
+    /** Expected declines: the normal outcome under a stampede, not errors. */
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ErrorResponse> handleDomain(DomainException ex, HttpServletRequest request) {
         DomainErrorMapping.Mapped mapped = DomainErrorMapping.map(ex);
-        log.info(
-                "Request declined: code={} status={}",
-                mapped.code(),
-                mapped.status().value());
-        ErrorResponse envelope =
-                ErrorResponse.of(mapped.code(), ex.getMessage(), mapped.details(), RequestIdFilter.current(request));
+        ErrorResponse envelope = ErrorResponses.of(request, mapped.code(), ex.getMessage(), mapped.details());
         ResponseEntity.BodyBuilder response = ResponseEntity.status(mapped.status());
         if (mapped.retryAfterSeconds() > 0) {
             response.header(HttpHeaders.RETRY_AFTER, String.valueOf(mapped.retryAfterSeconds()));
@@ -117,21 +112,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ErrorResponse> handleDataAccess(DataAccessException ex, HttpServletRequest request) {
-        String requestId = RequestIdFilter.current(request);
         return switch (SqlStates.classify(ex)) {
             case BUSY, RETRYABLE -> {
                 log.warn("Database saturated: {}", ex.getMessage());
                 yield ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                         .header(HttpHeaders.RETRY_AFTER, String.valueOf(DomainErrorMapping.RETRY_AFTER_SECONDS))
-                        .body(ErrorResponse.of(
-                                ErrorCodes.SERVER_BUSY, "Server is busy; retry shortly", Map.of(), requestId));
+                        .body(ErrorResponses.of(
+                                request, ErrorCodes.SERVER_BUSY, "Server is busy; retry shortly", Map.of()));
             }
             case UNAVAILABLE -> {
                 log.error("Database unavailable: {}", ex.getMessage());
                 yield ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                         .header(HttpHeaders.RETRY_AFTER, String.valueOf(DomainErrorMapping.RETRY_AFTER_SECONDS))
-                        .body(ErrorResponse.of(
-                                ErrorCodes.SERVICE_UNAVAILABLE, "Database unavailable", Map.of(), requestId));
+                        .body(ErrorResponses.of(
+                                request, ErrorCodes.SERVICE_UNAVAILABLE, "Database unavailable", Map.of()));
             }
             case OTHER -> handleUnexpected(ex, request);
         };
@@ -144,26 +138,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
-        ErrorResponse envelope = ErrorResponse.of(
-                ErrorCodes.INTERNAL_ERROR, "Internal error", Map.of(), RequestIdFilter.current(request));
+        ErrorResponse envelope = ErrorResponses.of(request, ErrorCodes.INTERNAL_ERROR, "Internal error", Map.of());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(envelope);
     }
 
     private ResponseEntity<Object> validationFailed(
             Map<String, Object> details, HttpHeaders headers, WebRequest request) {
         ErrorResponse envelope =
-                ErrorResponse.of(ErrorCodes.VALIDATION, "Request validation failed", details, requestId(request));
+                ErrorResponses.of(servlet(request), ErrorCodes.VALIDATION, "Request validation failed", details);
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .headers(headers)
                 .body(envelope);
     }
 
-    private static String requestId(WebRequest request) {
+    private static HttpServletRequest servlet(WebRequest request) {
         if (request instanceof NativeWebRequest nativeRequest) {
-            HttpServletRequest servletRequest = nativeRequest.getNativeRequest(HttpServletRequest.class);
-            if (servletRequest != null) {
-                return RequestIdFilter.current(servletRequest);
-            }
+            return nativeRequest.getNativeRequest(HttpServletRequest.class);
         }
         return null;
     }

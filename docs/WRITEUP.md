@@ -124,9 +124,11 @@ Full numbers and analysis: [LOADTEST.md](LOADTEST.md).
 | Environment | Requests | Elapsed | p50 | p99 | max | 5xx | Checks |
 |---|---|---|---|---|---|---|---|
 | Local compose (client in the compose network) | 20,000 @ 500 in flight | 24.2 s | 497 ms | 1,756 ms | 3,931 ms | 0 | all PASS, 48 invariant samples |
-| Railway (live) | 20,000 @ 500 in flight | _pending_ | | | | | |
+| Railway (live, client in India over the internet) | 20,000 @ 500 in flight | 13.5 s | 293 ms | 496 ms | 1,164 ms | 0 | all PASS (2 runs; run 1 p99 1,119 ms) |
 
-Also measured locally: cold start to ready ~16–18 s with zero 5xx during the restart; SIGTERM mid-burst drains
+On Railway the app starts in 2.7 s, and a redeploy polled every 0.5 s showed 118/118 successful responses (the new
+instance is healthy before the old one stops). Also measured locally: cold start to ready ~16–18 s on Docker Desktop
+with zero 5xx during the restart; SIGTERM mid-burst drains
 gracefully with zero 5xx (requests arriving while a single instance is down are refused at TCP, and correctness held:
 one winner per hot seat, books balanced).
 

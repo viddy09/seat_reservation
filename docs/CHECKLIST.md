@@ -1,18 +1,18 @@
 # Definition of Done: self-review
 
-Evidence for each item of the assignment's Definition of Done, as of 2026-10-12. Items that depend on the live
-deployment are marked pending until the Railway URL exists.
+Evidence for each item of the assignment's Definition of Done, as of 2026-10-12, after the Railway deployment.
+
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
 | 1 | `git clone` → `docker compose up --build` works with no manual steps; `./mvnw verify` passes; CI green | **Done** | Fresh clone of `8aa802f` into an empty directory: `./mvnw -B verify` → 138 tests, BUILD SUCCESS; `docker compose up --build` → `/readyz` 200 after ~9 s; full 20k burst against it → RESULT: PASS (0 × 5xx). GitHub Actions green on every pushed head (`467c746`, `e7cfc16`, `6201a17`, …). |
-| 2 | Live URL up, `/readyz` 200, and readiness 503 when the DB is unreachable | Local **done**, live **pending** | Local: stopping Postgres → `/readyz` 503 in 1.3 s, `/healthz` stays 200, recovery ~4 s after restart. Live URL: pending Railway project. |
-| 3 | Burst against the live URL: zero 5xx, one winner per hot seat, invariant held at every sample, metrics reconciled, limit held | Local **done**, live **pending** | Local 20k: 0 × 5xx, 1/500 winners on each of 5 hot seats, 48/48 samples ok, counter deltas == observed, 4 of 10 granted at limit 4 (docs/LOADTEST.md). Live: pending. |
+| 2 | Live URL up, `/readyz` 200, and readiness 503 when the DB is unreachable | **Done** | Live: https://app-production-70543.up.railway.app `/readyz` → 200 `{"status":"UP"}`. DB-unreachable behaviour proven locally (the live database was not taken down): Local: stopping Postgres → `/readyz` 503 in 1.3 s, `/healthz` stays 200, recovery ~4 s after restart. |
+| 3 | Burst against the live URL: zero 5xx, one winner per hot seat, invariant held at every sample, metrics reconciled, limit held | **Done** | Live, two runs of 20k @ 500 in flight: both PASS, 0 × 5xx, 0 transport errors, 1/500 winners on each hot seat, 32 and 30 invariant samples all ok, counter deltas == observed, limit held (p99 1,119 ms and 496 ms). Local 20k: 0 × 5xx, 1/500 winners on each of 5 hot seats, 48/48 samples ok, counter deltas == observed, 4 of 10 granted at limit 4 (docs/LOADTEST.md). |
 | 4 | Idempotency: replay → 200 with the same `reservation_id`; same key, different body → 409 | **Done** | `ReserveApiIT.replay_returns200WithOriginalReservation`, `sameKeyDifferentBody_returns409`; `ReserveConcurrencyIT.I4_*` (×5); burst checks "same key x50" and "same key, different seats". |
 | 5 | Spoofed body identity has no effect; non-owner cancel → 404 | **Done** | `ReserveApiIT.spoofedUserIdInBody_isIgnored`, `ReserveConcurrencyIT.I6_SpoofedUserIdInBodyIsIgnoredUnderConcurrency` (×5), `CancelAndReconcileApiIT.nonOwnerCancel_is404AndSeatStaysConfirmed`; burst check "spoofed body user_id ignored". ArchUnit: only `CurrentUser` reads the security context. |
 | 6 | Logs are JSON with a request_id; log access method documented | **Done** | `ObservabilityIT.accessLogIsOneJsonLinePerRequestWithContext`, `cancelAlsoGetsItsAccessLine`; docs/OBSERVABILITY.md "Logs" (compose: `docker compose logs -f app`; Railway: service Logs tab). |
 | 7 | All money is int64 paise; no float anywhere (grep to prove it) | **Done** | `grep -rnE --include='*.java' '^\s*[^/* ].*\b(float\|double\|Float\|Double\|BigDecimal)\b' .` → no matches (the only occurrences of the words are "double-sell" in two comments). Enforced by Checkstyle and a CI step. `price_paise`/`amount_paise` are `bigint`; `Math.multiplyExact`; `250.5`, `"250"`, `1e3` rejected with 400. |
-| 8 | README, WRITEUP, DECISIONS, OBSERVABILITY, AI_LOG complete; AI-usage section left for the author | **Done** (live numbers pending) | README.md; docs/WRITEUP.md (§7 is a TODO for the author); docs/DECISIONS.md ADR-001…043; docs/OBSERVABILITY.md; docs/AI_LOG.md; plus docs/LOADTEST.md. |
+| 8 | README, WRITEUP, DECISIONS, OBSERVABILITY, AI_LOG complete; AI-usage section left for the author | **Done** | README.md; docs/WRITEUP.md (§7 is a TODO for the author); docs/DECISIONS.md ADR-001…043; docs/OBSERVABILITY.md; docs/AI_LOG.md; plus docs/LOADTEST.md. |
 | 9 | Commit history incremental and readable | **Done** | Conventional Commits, one logical change each (`feat(reserve)`, `test(concurrency)`, `perf(reserve)`, `fix(logs)`, …); no squashes, no rewritten history. |
 
 ## Invariants → proof
@@ -28,6 +28,4 @@ deployment are marked pending until the Railway URL exists.
 
 ## Remaining
 
-- Deploy to Railway (owner creates the project and variables; README "Deploying"), then run
-  `ADMIN_API_KEY=… ./burst.sh <live-url>` and record the results in docs/LOADTEST.md and docs/WRITEUP.md §6.
 - Author writes the AI-usage section of docs/WRITEUP.md from docs/AI_LOG.md.

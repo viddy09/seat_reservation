@@ -22,6 +22,7 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Known platform facts we design around:** Railway health checks run **only during deploy** (not continuously); edge proxy limit 10,000 concurrent connections and 5 min per request; Postgres `max_connections = 100`; trial plan 1 GB RAM / 2 vCPU per service.
 - **Failure mode prevented:** graders hitting a sleeping service and seeing 502/504; a DB across the public internet adding latency and connection fragility.
 - **Risk:** the trial lasts 30 days; if grading is later, upgrade to Hobby ($5/month).
+- **Deployed 2026-10-12** with the Railway CLI (`railway init`, `add --database postgres`, `variables`, `up`, `domain`) from the owner's logged-in session; secrets generated locally and passed via stdin, stored outside the repo. Railway now marks `railway.json` (config as code) deprecated in favour of `.railway/railway.ts`; existing files keep working until **2026-12-01**, after which the deploy config must be migrated (`railway config migrate`).
 
 ## ADR-003 — Postgres is the only concurrency control
 *Status: accepted*

@@ -63,6 +63,27 @@ final reconcile ok. In-process counters restarted from zero, so counter-vs-obser
 restart (ADR-019); DB gauges and `/reconcile` stayed authoritative. On Railway a redeploy starts the new instance and
 waits for `/readyz` before stopping the old one, so a deploy doesn't open that window.
 
-## Railway (live URL)
+## Railway (live URL), 2026-10-12
 
-_Pending: the Railway project and URL are being set up by the repository owner._
+Deployment: https://app-production-70543.up.railway.app. One app service (Dockerfile, Railway trial: up to 2 vCPU /
+1 GB) and one PostgreSQL service in the same project, connected over the private network
+(`postgres.railway.internal`), `DB_MAX_CONNS=20`. Client: the burst tool on a Windows laptop in India, over the public
+internet and TLS through Railway's edge. Default burst (20k requests, 500 in flight, 1,000 seats, 5 hot seats × 500).
+
+| Run | Elapsed | p50 | p95 | p99 | max | 201 | 200 replay | `seat_taken` | `per_user_limit` | `key_reused` | 5xx | Transport errors | Invariant samples | Result |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 13.96 s | 294 ms | 484 ms | 1,119 ms | 3,240 ms | 607 | 49 | 19,295 | 30 | 19 | **0** | **0** | 32, 0 failed | **PASS** |
+| 2 | 13.46 s | 293 ms | 372 ms | 496 ms | 1,164 ms | 606 | 49 | 19,294 | 32 | 19 | **0** | **0** | 30, 0 failed | **PASS** |
+
+Both runs: exactly 1 winner of 500 on each hot seat; final reconcile ok; confirmed seats == seats in 201s minus cancels
+(965 and 966); counter deltas equal to observed outcomes for every reason; one user ×10 at limit 4 → exactly 4;
+spoofed body identity ignored; cancel + re-book succeeded. Server side after both runs: 0 ERROR/WARN log lines,
+`db_pool_timeouts_total{pool="main"} 0`, max pool wait 1.05 s, no `db_tx_retries_total` series (zero retries).
+
+p50 ≈ 290 ms is dominated by the round trip from India to Railway's region; the server-side time is much smaller.
+
+**Startup on Railway:** "Started SeatReservationApplication in 2.685 seconds"; Flyway V1 in 12 ms.
+
+**Redeploy under polling:** `railway redeploy` while polling `/readyz` and `GET /shows/{id}` every 0.5 s for 4 minutes:
+118/118 samples were 200 on both. The new deployment became healthy before the old one was removed, so deploys do not
+open the single-instance restart window measured locally.

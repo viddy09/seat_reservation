@@ -5,7 +5,7 @@ twice, contention never surfaces as a 5xx, the books balance at every instant, r
 limit holds under parallel requests, and identity comes only from a verified token. Java 21, Spring Boot 4.1 on virtual
 threads, PostgreSQL 16 with explicit SQL; Postgres row locks and constraints are the entire concurrency control.
 
-**Live URL:** _pending deployment (Railway)_ · **Design:** [docs/WRITEUP.md](docs/WRITEUP.md) ·
+**Live URL:** https://app-production-70543.up.railway.app (Railway) · **Design:** [docs/WRITEUP.md](docs/WRITEUP.md) ·
 **Decisions:** [docs/DECISIONS.md](docs/DECISIONS.md) · **Observability:** [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) ·
 **Load tests:** [docs/LOADTEST.md](docs/LOADTEST.md)
 

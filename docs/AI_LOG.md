@@ -55,4 +55,16 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
 - **AI output:** reservation outcome counters (all reasons pre-registered), HTTP counter + latency histogram by route template, scrape-time seat gauge collector on the observability pool, `db_pool_*` via renaming Hikari meters for both pools, one JSON access line per request with request/user/show/reservation context, ADR-037…039.
 - **Problems hit and fixed by the AI:** a deprecated `MultiCollector` method and a `this-escape` warning failed the `-Werror` build (removed the override; made the collector final); `db_pool_total` was silently exported as `db_pool` because Prometheus reserves `_total` for counters (renamed to `db_pool_connections`).
 - **Result:** full build 132 tests green.
-- **Human decision:** _pending Phase 4 review_
+- **Human decision:** "continue" (Phase 4 accepted; proceed to Phase 5).
+
+## 2026-10-12 — Phase 5 (burst tool, local load tests)
+
+- **AI output:** `burst` Maven module (JDK HttpClient + virtual threads, fat jar), `burst.sh` (JDK or Docker-only), `make burst`; all eight scenarios from the brief; report with outcome table, latency percentiles, per-hot-seat winners, invariant samples, final counts, reconcile and metric deltas; non-zero exit on any violation; docs/LOADTEST.md; ADR-040/041.
+- **Load-test findings and changes (AI-driven, numbers in docs/LOADTEST.md):**
+  - Pool waits up to 11.5 s → added a single non-locking pre-read that also declines already-taken seats (sanctioned optional optimisation in the brief), keeping replays on the transactional path.
+  - Doubling the pool did not help (app-side constraint locally); pool kept at 20.
+  - Windows listen-backlog refusals → connect-only retries in clients, counted in the report.
+  - Docker Desktop port forwarding inflated latency; in-network run measured separately.
+- **Bugs the AI found and fixed while doing this:** the access log silently dropped every cancel line (`reservation_id` written twice → JSON encoder error); a metrics test wrongly treated the deliberate `show_id` gauge label as a leak; the burst poller shared the load's in-flight cap and sampled only 6 times per run (now 48).
+- **Result:** full 20k burst PASS locally (in-network p99 1.76 s, 0 errors). Railway run pending the owner's project/URL.
+- **Human decision:** _pending Phase 5 review_

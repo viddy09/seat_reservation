@@ -272,6 +272,21 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Decision:** `seatres_seats{show_id,status}` and `seatres_seats_available{show_id}` come from a `MultiCollector` registered on the Prometheus registry, which runs one grouped query on the observability pool *when scraped*, cached ≤ 1 s, limited to the 50 newest shows. If the query fails it emits no seat samples rather than stale ones. HikariCP's own meters are renamed by a `MeterFilter` to `db_pool_acquired|idle|connections|max|pending`, `db_pool_wait_seconds_{count,sum,max}` (wait count and duration) and `db_pool_timeouts_total`, for both pools (`pool="main|obs"`).
 - **Why:** gauges computed at scrape time from the database always agree with the API, unlike in-process gauges updated on writes. Renaming keeps one source of truth instead of a second set of gauges. The total-connections gauge is `db_pool_connections` because Prometheus reserves the `_total` suffix for counters (the exporter silently stripped it).
 
+## ADR-040 — One non-locking pre-read, including the hot-path decline
+*Status: accepted (Phase 5, after load testing)*
+
+- **Context:** the first local burst showed pool waits of up to 11.5 s (avg 0.75 s). Every reserve used three pool connections, and losers of a hot seat queued on its row lock *while holding a connection*, so 20 connections spent most of their time waiting for requests that were always going to decline.
+- **Decision:** before the transaction, one read returns the show, unknown seats, seats already taken, and whether this (user, key) already has a reservation. If seats are taken and the key is new, decline `seat_taken` immediately (no transaction, no lock). If the key exists, always go to the transaction, so a retry of a successful request still returns its 200 replay.
+- **Why it's safe:** the transaction still makes the real decision under row locks; the pre-read can only produce a decline. A seat that is freed just after the read gives a stale `seat_taken`, a legitimate race outcome, never a double-sell. Shows are immutable, so the rest of the read can't go stale (ADR-026).
+- **Trade-off:** a user already at the limit who asks for a taken seat now gets `seat_taken` rather than `per_user_limit` (both are correct declines; precedence among simultaneous declines is not part of the contract).
+- **Measured:** 20k burst (local, in-network) p99 1.76 s, max 3.9 s, 0 errors. See docs/LOADTEST.md.
+
+## ADR-041 — Clients retry refused connects only
+*Status: accepted (Phase 5)*
+
+- **Decision:** the burst tool and the integration-test HTTP client retry a request (≤ 5 attempts, short backoff) only on `ConnectException`, i.e. when the TCP connection was refused and nothing was sent. The burst report prints how many such retries happened.
+- **Why:** on Windows the listen backlog is capped (~200) below a 500-connection simultaneous start, so some connects are refused before reaching Tomcat. That's a property of the client machine, not the service. Retrying after a request was sent could duplicate it, so that is never done; those failures count as transport errors and fail the run.
+
 ## ADR-034 — Declines skip stack traces
 *Status: accepted (Phase 2)*
 

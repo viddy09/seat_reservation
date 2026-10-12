@@ -48,4 +48,11 @@ A factual running record of what was asked of the AI assistant (Claude Code), wh
 - **AI output:** owner-only idempotent cancel in the global lock order; single-statement reconcile endpoint with six checks; endpoint tests (cancel, idempotent re-cancel, non-owner 404, rebook after cancel, replay after cancel, decline not memoised, all-or-nothing, reconcile detects corruption); concurrency tests repeated 5x (overlapping multi-seat in opposite orders, 10 parallel reserves with limit 4, parallel pairs, reconcile sampled during load, cancel racing 50 buyers, 20 concurrent cancels); ADR-035/036.
 - **AI self-correction:** first added a REPEATABLE READ template for reconcile, then removed it because a single statement already reads one snapshot.
 - **Result:** all 40 new tests passed on the first run; full build 126 tests green.
-- **Human decision:** _pending Phase 3 review; deploy still waiting on GitHub access and Railway project_
+- **Human decision:** "continue" (x3). Then asked whether the AI was unable to connect to the repo; AI explained reads worked but pushes were denied to credential `prapp200` and gave two fixes. The human fixed access and pushed main themselves ("now check again"); AI verified origin/main == local 467c746 and that GitHub Actions CI completed with conclusion `success`.
+
+## 2026-10-12 — Phase 4 (metrics, DB collector, access logs)
+
+- **AI output:** reservation outcome counters (all reasons pre-registered), HTTP counter + latency histogram by route template, scrape-time seat gauge collector on the observability pool, `db_pool_*` via renaming Hikari meters for both pools, one JSON access line per request with request/user/show/reservation context, ADR-037…039.
+- **Problems hit and fixed by the AI:** a deprecated `MultiCollector` method and a `this-escape` warning failed the `-Werror` build (removed the override; made the collector final); `db_pool_total` was silently exported as `db_pool` because Prometheus reserves `_total` for counters (renamed to `db_pool_connections`).
+- **Result:** full build 132 tests green.
+- **Human decision:** _pending Phase 4 review_

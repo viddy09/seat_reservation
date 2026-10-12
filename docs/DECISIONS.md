@@ -253,6 +253,25 @@ Status values: *accepted* (in force), *proposed* (pending approval), *superseded
 - **Decision:** cancel locks (1) the reservation row `FOR UPDATE` filtered by owner, (2) decrements `user_show_counts`, (3) locks the seats in label order, then releases `WHERE reservation_id = $id AND status = 'confirmed'` and asserts the row count. An already-cancelled reservation returns 200 with no writes.
 - **Proven:** 20 concurrent cancels of one reservation → all 200, quota decremented once; a cancel racing 50 buyers of the same seat → at most one new owner, never resurrected, never shared.
 
+## ADR-037 — One recorded outcome drives metrics and the access log
+*Status: accepted (Phase 4)*
+
+- **Decision:** whoever produces a response records its outcome on the request (controllers: `confirmed`, `idempotent_replay`, `cancelled`; every error path: its envelope `error.code`, via `ErrorResponses`). One filter, placed just inside the request-id filter and *outside* Spring Security, reads it after the response is complete and emits `http_requests_total`, `http_request_duration_seconds`, the reservation counters and the access line.
+- **Why:** metrics and logs are derived from the same fact, so they can't disagree; sitting outside Security means 401s are counted (`declined{reason="unauthorized"}`) even though they never reach Spring MVC. Declines are no longer logged separately, so there is exactly one line per request.
+- **Proven:** a test fires one request per outcome and asserts every counter delta; a 200-user storm asserts `confirmed` delta == 201s and `declined{seat_taken}` delta == 409s exactly.
+
+## ADR-038 — Route labels from templates, resolved independently of Spring MVC
+*Status: accepted (Phase 4)*
+
+- **Decision:** a fixed list of route templates (`/shows/{showId}/reserve`, …) matched with `PathPattern`; anything else is `unmatched`.
+- **Why:** label cardinality must stay bounded (never raw ids), and Spring's matched-pattern attribute is absent for requests rejected before MVC (401/403). Probe/scrape routes (`/healthz`, `/readyz`, `/metrics`, `/actuator/**`) log at DEBUG so a 10 s health check doesn't drown the access log; they are still counted in metrics.
+
+## ADR-039 — Seat gauges as a scrape-time Prometheus collector; pool metrics renamed, not duplicated
+*Status: accepted (Phase 4)*
+
+- **Decision:** `seatres_seats{show_id,status}` and `seatres_seats_available{show_id}` come from a `MultiCollector` registered on the Prometheus registry, which runs one grouped query on the observability pool *when scraped*, cached ≤ 1 s, limited to the 50 newest shows. If the query fails it emits no seat samples rather than stale ones. HikariCP's own meters are renamed by a `MeterFilter` to `db_pool_acquired|idle|connections|max|pending`, `db_pool_wait_seconds_{count,sum,max}` (wait count and duration) and `db_pool_timeouts_total`, for both pools (`pool="main|obs"`).
+- **Why:** gauges computed at scrape time from the database always agree with the API, unlike in-process gauges updated on writes. Renaming keeps one source of truth instead of a second set of gauges. The total-connections gauge is `db_pool_connections` because Prometheus reserves the `_total` suffix for counters (the exporter silently stripped it).
+
 ## ADR-034 — Declines skip stack traces
 *Status: accepted (Phase 2)*
 

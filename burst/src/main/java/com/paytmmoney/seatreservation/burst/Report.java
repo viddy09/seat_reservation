@@ -69,11 +69,14 @@ final class Report {
             check("hot seat " + seat + " has exactly one winner", winners == 1, winners + " winners");
         }
 
-        long failedSamples = outcome.samples().stream().filter(s -> !s.ok()).count();
+        long reachable = outcome.samples().stream().filter(s -> s.reachable()).count();
+        long failedSamples =
+                outcome.samples().stream().filter(s -> s.reachable() && !s.ok()).count();
         check(
                 "invariant held at every sample",
-                failedSamples == 0 && !outcome.samples().isEmpty(),
-                outcome.samples().size() + " samples, " + failedSamples + " failed" + firstFailures());
+                failedSamples == 0 && reachable > 0,
+                reachable + " samples, " + failedSamples + " failed, "
+                        + (outcome.samples().size() - reachable) + " unreachable" + firstFailures());
         check("final reconcile ok", outcome.finalReconcile().path("ok").asBoolean(), failingReconcileChecks());
 
         long expectedConfirmedSeats = reserves.stream()
@@ -268,7 +271,7 @@ final class Report {
 
     private String firstFailures() {
         List<String> failures = outcome.samples().stream()
-                .filter(s -> !s.ok())
+                .filter(s -> s.reachable() && !s.ok())
                 .limit(MAX_FAILED_SAMPLES_SHOWN)
                 .map(s -> s.source() + ": " + s.detail())
                 .toList();

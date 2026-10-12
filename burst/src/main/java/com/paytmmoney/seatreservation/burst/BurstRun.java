@@ -49,7 +49,8 @@ final class BurstRun {
         this.sampler = new Api(config.baseUrl(), SAMPLER_CONCURRENCY);
     }
 
-    record InvariantSample(String source, boolean ok, String detail) {}
+    /** {@code reachable=false}: the service could not be reached (e.g. mid-restart); not evidence either way. */
+    record InvariantSample(String source, boolean reachable, boolean ok, String detail) {}
 
     record Outcome(
             String run,
@@ -301,14 +302,15 @@ final class BurstRun {
                     + c.path("held").asInt()
                     + c.path("confirmed").asInt();
             boolean ok = sum == c.path("total").asInt() && c.path("total").asInt() == config.seats();
-            samples.add(new InvariantSample("show", ok, c.toString()));
+            samples.add(new InvariantSample("show", true, ok, c.toString()));
         } else {
-            samples.add(new InvariantSample("show", false, "GET /shows -> " + show.status()));
+            samples.add(new InvariantSample("show", !show.isTransportError(), false, "GET /shows -> " + show.status()));
         }
         Api.Response reconcile = sampler.get("/shows/" + showId + "/reconcile", null);
         boolean ok =
                 reconcile.status() == Http.OK && reconcile.body().path("ok").asBoolean();
-        samples.add(new InvariantSample("reconcile", ok, ok ? "" : Api.describe(reconcile)));
+        samples.add(
+                new InvariantSample("reconcile", !reconcile.isTransportError(), ok, ok ? "" : Api.describe(reconcile)));
     }
 
     // ---- plumbing ---------------------------------------------------------------------------------------------
